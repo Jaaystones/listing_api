@@ -20,7 +20,9 @@ const ABUJA = { lat: 9.0882, lng: 7.4991 };
 const base = { title: "Test listing", price: 1_000_000, type: "rent", bedrooms: 2, location: VI, agentId: AGENT };
 
 async function create(overrides: Record<string, unknown> = {}) {
-  const res = await request(app).post("/listings").send({ ...base, ...overrides });
+  const res = await request(app)
+    .post("/listings")
+    .send({ ...base, ...overrides });
   expect(res.status).toBe(201);
   return res.body.data;
 }
@@ -67,7 +69,9 @@ describe("CRUD /listings", () => {
     const created = await create();
     const partial = await request(app).put(`/listings/${created.id}`).send({ price: 1 });
     expect(partial.status).toBe(400);
-    const full = await request(app).put(`/listings/${created.id}`).send({ ...base, title: "Replaced", type: "sale" });
+    const full = await request(app)
+      .put(`/listings/${created.id}`)
+      .send({ ...base, title: "Replaced", type: "sale" });
     expect(full.status).toBe(200);
     expect(full.body.data).toMatchObject({ title: "Replaced", type: "sale" });
   });
@@ -90,7 +94,9 @@ describe("CRUD /listings", () => {
 
 describe("error handling", () => {
   it("returns 400 with field details for an invalid body", async () => {
-    const res = await request(app).post("/listings").send({ ...base, price: -5, type: "lease" });
+    const res = await request(app)
+      .post("/listings")
+      .send({ ...base, price: -5, type: "lease" });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("VALIDATION_ERROR");
     const fields = res.body.error.details.map((d: { field: string }) => d.field);
@@ -110,6 +116,18 @@ describe("error handling", () => {
     expect(res.body.error).toEqual({ code: "NOT_FOUND", message: "Listing not found" });
   });
 
+  it("returns 404 when updating or replacing a listing that doesn't exist", async () => {
+    expect((await request(app).patch(`/listings/${MISSING_ID}`).send({ price: 1 })).status).toBe(404);
+    expect((await request(app).put(`/listings/${MISSING_ID}`).send(base)).status).toBe(404);
+  });
+
+  it("returns 400 for an empty PATCH body", async () => {
+    const created = await create();
+    const res = await request(app).patch(`/listings/${created.id}`).send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error.details[0].message).toBe("Provide at least one field to update");
+  });
+
   it("returns 404 for unknown routes", async () => {
     const res = await request(app).get("/nope");
     expect(res.status).toBe(404);
@@ -121,14 +139,24 @@ describe("GET /listings/search", () => {
   beforeEach(async () => {
     await create({ title: "VI studio shortlet", type: "shortlet", price: 80_000, bedrooms: 0, location: VI });
     await create({ title: "Lekki 3 bed rent", type: "rent", price: 6_000_000, bedrooms: 3, location: LEKKI });
-    await create({ title: "Ikeja 4 bed sale", type: "sale", price: 150_000_000, bedrooms: 4, location: IKEJA, agentId: OTHER_AGENT });
+    await create({
+      title: "Ikeja 4 bed sale",
+      type: "sale",
+      price: 150_000_000,
+      bedrooms: 4,
+      location: IKEJA,
+      agentId: OTHER_AGENT,
+    });
     await create({ title: "Abuja 3 bed rent", type: "rent", price: 9_000_000, bedrooms: 3, location: ABUJA });
   });
 
   const titles = (res: request.Response) => res.body.data.map((l: { title: string }) => l.title).sort();
 
   it("filters by type (single and comma-separated)", async () => {
-    expect(titles(await request(app).get("/listings/search?type=rent"))).toEqual(["Abuja 3 bed rent", "Lekki 3 bed rent"]);
+    expect(titles(await request(app).get("/listings/search?type=rent"))).toEqual([
+      "Abuja 3 bed rent",
+      "Lekki 3 bed rent",
+    ]);
     const multi = await request(app).get("/listings/search?type=sale,shortlet");
     expect(titles(multi)).toEqual(["Ikeja 4 bed sale", "VI studio shortlet"]);
   });
@@ -139,7 +167,10 @@ describe("GET /listings/search", () => {
   });
 
   it("filters by exact bedrooms and by bedroom range", async () => {
-    expect(titles(await request(app).get("/listings/search?bedrooms=3"))).toEqual(["Abuja 3 bed rent", "Lekki 3 bed rent"]);
+    expect(titles(await request(app).get("/listings/search?bedrooms=3"))).toEqual([
+      "Abuja 3 bed rent",
+      "Lekki 3 bed rent",
+    ]);
     expect(titles(await request(app).get("/listings/search?minBedrooms=4"))).toEqual(["Ikeja 4 bed sale"]);
   });
 
