@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: listings
+      POSTGRES_PASSWORD: listings
+      POSTGRES_DB: listings
+    ports:
+      - "${DB_HOST_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/10-init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U listings -d listings_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: .
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://listings:listings@db:5432/listings
+      SEED: "true"
+    ports:
+      - "${API_HOST_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Runs the full test suite inside Docker: `docker compose run --rm test`
+  test:
+    build:
+      context: .
+      target: build
+    command: ["npm", "test"]
+    environment:
+      TEST_DATABASE_URL: postgres://listings:listings@db:5432/listings_test
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["test"]
+
+volumes:
+  pgdata:
