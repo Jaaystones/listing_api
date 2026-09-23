@@ -1,6 +1,8 @@
 services:
   db:
     image: postgis/postgis:16-3.4
+    # The PostGIS image is published for amd64 only; Apple Silicon runs it under emulation.
+    platform: linux/amd64
     restart: unless-stopped
     environment:
       POSTGRES_USER: listings
