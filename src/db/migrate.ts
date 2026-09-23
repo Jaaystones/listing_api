@@ -13,6 +13,9 @@ export async function runMigrations(pool: Pool): Promise<string[]> {
   const client = await pool.connect();
   const applied: string[] = [];
   try {
+    // The pool's statement_timeout is sized for API requests. Schema changes such as
+    // CREATE EXTENSION postgis or building an index on a large table can take much longer.
+    await client.query("SET statement_timeout = 0");
     await client.query("SELECT pg_advisory_lock($1)", [LOCK_ID]);
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
