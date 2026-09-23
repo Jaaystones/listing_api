@@ -3,6 +3,12 @@ import { z } from "zod";
 export const LISTING_TYPES = ["rent", "sale", "shortlet"] as const;
 export const MAX_RADIUS_KM = 500;
 export const MAX_PAGE_SIZE = 100;
+/**
+ * Offset pagination gets slower the deeper it goes, so page × limit is capped (the same idea as
+ * Elasticsearch's max_result_window). Totals are counted exactly up to the same number.
+ */
+export const MAX_RESULT_WINDOW = 10_000;
+export const MAX_COUNTED_RESULTS = MAX_RESULT_WINDOW;
 
 const listingType = z.enum(LISTING_TYPES);
 
@@ -48,7 +54,17 @@ const paginationShape = {
   limit: z.preprocess(emptyToUndefined, num().int().min(1).max(MAX_PAGE_SIZE).default(20)),
 };
 
-export const listQuerySchema = z.object(paginationShape).strict();
+const withinResultWindow = (q: { page: number; limit: number }, ctx: z.RefinementCtx) => {
+  if (q.page * q.limit > MAX_RESULT_WINDOW) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["page"],
+      message: `page × limit can't exceed ${MAX_RESULT_WINDOW}; narrow the search with filters instead`,
+    });
+  }
+};
+
+export const listQuerySchema = z.object(paginationShape).strict().superRefine(withinResultWindow);
 
 export const searchQuerySchema = z
   .object({
@@ -78,6 +94,7 @@ export const searchQuerySchema = z
   })
   .strict()
   .superRefine((q, ctx) => {
+    withinResultWindow(q, ctx);
     if (q.minPrice !== undefined && q.maxPrice !== undefined && q.minPrice > q.maxPrice) {
       ctx.addIssue({ code: "custom", path: ["minPrice"], message: "minPrice cannot be greater than maxPrice" });
     }

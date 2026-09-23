@@ -12,7 +12,13 @@ import {
 function paginated(result: Page<Listing>, page: number, limit: number) {
   return {
     data: result.items,
-    pagination: { page, limit, total: result.total, totalPages: Math.ceil(result.total / limit) },
+    pagination: {
+      page,
+      limit,
+      total: result.total,
+      totalExact: result.totalExact,
+      totalPages: Math.ceil(result.total / limit),
+    },
   };
 }
 

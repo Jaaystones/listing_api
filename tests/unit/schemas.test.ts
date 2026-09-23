@@ -83,6 +83,11 @@ describe("searchQuerySchema", () => {
     expect(searchQuerySchema.safeParse({ lat: "6.4", lng: "3.4", radiusKm: "501" }).success).toBe(false);
   });
 
+  it("caps page × limit at 10,000 results", () => {
+    expect(searchQuerySchema.safeParse({ page: "500", limit: "20" }).success).toBe(true);
+    expect(issuesOf(searchQuerySchema.safeParse({ page: "501", limit: "20" }))).toContain("page");
+  });
+
   it("rejects unknown query parameters so typos don't silently return everything", () => {
     expect(searchQuerySchema.safeParse({ min_price: "100" }).success).toBe(false);
   });

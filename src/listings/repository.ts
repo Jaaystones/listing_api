@@ -1,5 +1,11 @@
 import type { Pool } from "../db/pool.js";
-import type { CreateListingInput, ListingType, SearchQuery, UpdateListingInput } from "./schemas.js";
+import {
+  MAX_COUNTED_RESULTS,
+  type CreateListingInput,
+  type ListingType,
+  type SearchQuery,
+  type UpdateListingInput,
+} from "./schemas.js";
 
 export interface Listing {
   id: string;
@@ -17,7 +23,10 @@ export interface Listing {
 
 export interface Page<T> {
   items: T[];
+  /** Number of matches, capped at MAX_COUNTED_RESULTS. */
   total: number;
+  /** False when there are more matches than MAX_COUNTED_RESULTS; `total` is then a lower bound. */
+  totalExact: boolean;
 }
 
 interface ListingRow {
@@ -105,8 +114,12 @@ export class ListingRepository {
   }
 
   /**
-   * Filtered, paginated search. When lat/lng/radiusKm are given, results are limited to
-   * listings within the radius (ST_DWithin uses the GiST index) and ordered nearest first.
+   * Filtered, paginated search. Without a point, results are newest first. With lat/lng/radiusKm,
+   * results are limited to the radius and ordered nearest first (ties broken by id).
+   *
+   * Distances use a sphere (PostGIS `<->` and use_spheroid = false). That is within ~0.5% of the
+   * spheroid, which is plenty for property search, and lets one metric drive the radius filter,
+   * the ordering, the index-assisted nearest-neighbour scan and the returned distanceKm.
    */
   async search(query: Partial<SearchQuery> & { page: number; limit: number }): Promise<Page<Listing>> {
     const where: string[] = [];
@@ -121,30 +134,58 @@ export class ListingRepository {
     if (query.maxBedrooms !== undefined) where.push(`bedrooms <= ${add(query.maxBedrooms)}`);
     if (query.agentId !== undefined) where.push(`agent_id = ${add(query.agentId)}`);
 
-    let distanceSelect = "";
-    let orderBy = "created_at DESC, id DESC";
     const isGeo = query.lat !== undefined && query.lng !== undefined && query.radiusKm !== undefined;
-    if (isGeo) {
-      const origin = point(add(query.lng), add(query.lat));
-      where.push(`ST_DWithin(location, ${origin}, ${add(query.radiusKm! * 1000)})`);
-      distanceSelect = `, ST_Distance(location, ${origin}) / 1000.0 AS distance_km`;
-      orderBy = "distance_km ASC, id ASC";
-    }
+    const origin = isGeo ? point(add(query.lng), add(query.lat)) : "";
+    const radiusM = isGeo ? add(query.radiusKm! * 1000) : "";
+    if (isGeo) where.push(`ST_DWithin(location, ${origin}, ${radiusM}, false)`);
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-    const filterParams = [...params];
-    const limitParam = add(query.limit);
-    const offsetParam = add((query.page - 1) * query.limit);
+    const filterParams = [...params]; // the count query needs only these
+
+    // Counting every match is the slowest part of a broad search (a full scan of the matches),
+    // so stop at MAX_COUNTED_RESULTS and report the total as a lower bound past that.
+    const countSql = `
+      SELECT count(*)::int AS total
+      FROM (SELECT 1 FROM listings ${whereSql} LIMIT ${MAX_COUNTED_RESULTS + 1}) matches`;
+
+    const offset = (query.page - 1) * query.limit;
+    let pageSql: string;
+    if (isGeo) {
+      // Sorting by (distance, id) stops Postgres using the GiST index's nearest-neighbour scan,
+      // so a wide radius meant computing and sorting the distance of every match (~1 s for
+      // 300k rows). Instead: (1) a nearest-neighbour scan finds the distance of the last row
+      // this page needs, then (2) only rows within that distance are sorted exactly. Rows tied
+      // on distance (same building) are all within it, so pages stay stable.
+      pageSql = `
+        WITH boundary AS (
+          SELECT location <-> ${origin} AS d FROM listings ${whereSql}
+          ORDER BY location <-> ${origin}
+          OFFSET ${add(offset + query.limit - 1)} LIMIT 1
+        )
+        SELECT ${COLUMNS}, (location <-> ${origin}) / 1000.0 AS distance_km
+        FROM listings ${whereSql}
+          -- +1 cm guards against float rounding at the boundary; if the page runs past the
+          -- last match there is no boundary row and the full radius applies.
+          AND ST_DWithin(location, ${origin}, COALESCE((SELECT d FROM boundary) + 0.01, ${radiusM}), false)
+        ORDER BY location <-> ${origin}, id
+        LIMIT ${add(query.limit)} OFFSET ${add(offset)}`;
+    } else {
+      pageSql = `
+        SELECT ${COLUMNS} FROM listings ${whereSql}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ${add(query.limit)} OFFSET ${add(offset)}`;
+    }
 
     const [itemsResult, countResult] = await Promise.all([
-      this.pool.query<ListingRow>(
-        `SELECT ${COLUMNS}${distanceSelect} FROM listings ${whereSql}
-         ORDER BY ${orderBy} LIMIT ${limitParam} OFFSET ${offsetParam}`,
-        params,
-      ),
-      this.pool.query<{ total: number }>(`SELECT count(*)::int AS total FROM listings ${whereSql}`, filterParams),
+      this.pool.query<ListingRow>(pageSql, params),
+      this.pool.query<{ total: number }>(countSql, filterParams),
     ]);
 
-    return { items: itemsResult.rows.map(toListing), total: countResult.rows[0].total };
+    const counted = countResult.rows[0].total;
+    return {
+      items: itemsResult.rows.map(toListing),
+      total: Math.min(counted, MAX_COUNTED_RESULTS),
+      totalExact: counted <= MAX_COUNTED_RESULTS,
+    };
   }
 }

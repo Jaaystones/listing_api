@@ -1,4 +1,4 @@
-import { LISTING_TYPES, MAX_PAGE_SIZE, MAX_RADIUS_KM } from "../listings/schemas.js";
+import { LISTING_TYPES, MAX_PAGE_SIZE, MAX_RADIUS_KM, MAX_RESULT_WINDOW } from "../listings/schemas.js";
 
 // Hand-written OpenAPI 3 spec served at /docs. Kept in sync with the routes by
 // tests/integration/docs.test.ts, which checks every documented operation exists.
@@ -28,7 +28,11 @@ const queryParam = (name: string, schema: object, description: string, example?:
 });
 
 const paginationParams = [
-  queryParam("page", { type: "integer", minimum: 1, default: 1 }, "Page number (1-based)."),
+  queryParam(
+    "page",
+    { type: "integer", minimum: 1, default: 1 },
+    `Page number (1-based). page × limit can be at most ${MAX_RESULT_WINDOW}.`,
+  ),
   queryParam("limit", { type: "integer", minimum: 1, maximum: MAX_PAGE_SIZE, default: 20 }, "Items per page."),
 ];
 
@@ -119,7 +123,9 @@ export const openApiSpec = {
           "**Bedrooms:** use either `bedrooms` (exact) or `minBedrooms`/`maxBedrooms` (range), not both. " +
           "Sending both returns 400, so clear the bedroom fields you don't need before clicking Execute.\n\n" +
           "**Distance:** `lat`, `lng` and `radiusKm` must be sent together. Geo results are sorted nearest first " +
-          "and include `distanceKm`; other results are newest first.",
+          "and include `distanceKm` (great-circle distance, within ~0.5% of the true distance); other results are newest first.\n\n" +
+          `**Paging:** \`page × limit\` can be at most ${MAX_RESULT_WINDOW}. Totals are exact up to ${MAX_RESULT_WINDOW}; ` +
+          "beyond that `totalExact` is false. Narrow the search with filters rather than paging deeper.",
         parameters: [
           queryParam(
             "type",
@@ -266,7 +272,16 @@ export const openApiSpec = {
             properties: {
               page: { type: "integer", example: 1 },
               limit: { type: "integer", example: 20 },
-              total: { type: "integer", example: 12 },
+              total: {
+                type: "integer",
+                example: 12,
+                description: `Number of matches, counted up to ${MAX_RESULT_WINDOW}.`,
+              },
+              totalExact: {
+                type: "boolean",
+                example: true,
+                description: `false when there are more than ${MAX_RESULT_WINDOW} matches; \`total\` is then a lower bound.`,
+              },
               totalPages: { type: "integer", example: 1 },
             },
           },

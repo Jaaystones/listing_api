@@ -15,6 +15,9 @@ export function createPool(connectionString: string): Pool {
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
     statement_timeout: 10_000,
+    // JIT compilation suits long analytical queries. For these millisecond API queries it only
+    // adds 100-250 ms of compile time (measured with `npm run bench`), so switch it off.
+    options: "-c jit=off",
   });
   // An idle client can lose its connection (DB restart, failover, network blip). Without a
   // listener, pg's 'error' event is unhandled and crashes the process. The pool discards the
