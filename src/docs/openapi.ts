@@ -70,12 +70,10 @@ export const openApiSpec = {
     "/health": {
       get: {
         tags: ["Health"],
-        summary: "Liveness check (includes a database ping)",
+        summary: "Health check (includes a database ping)",
         responses: {
-          200: response("Service and database are up", {
-            type: "object",
-            properties: { status: { type: "string", example: "ok" } },
-          }),
+          200: response("Service and database are up", ref("Health")),
+          503: response("Database is unreachable", ref("Health")),
         },
       },
     },
@@ -107,6 +105,8 @@ export const openApiSpec = {
             description: "Validation failed or invalid JSON",
             content: { "application/json": { schema: ref("Error"), example: validationErrorExample } },
           },
+          413: errorResponse("Body larger than 100 KB"),
+          415: errorResponse("Body is not JSON (send Content-Type: application/json)"),
         },
       },
     },
@@ -128,9 +128,21 @@ export const openApiSpec = {
           ),
           queryParam("minPrice", { type: "number", minimum: 0 }, "Minimum price (inclusive)."),
           queryParam("maxPrice", { type: "number", minimum: 0 }, "Maximum price (inclusive)."),
-          queryParam("bedrooms", { type: "integer", minimum: 0 }, "Exact number of bedrooms. Leave empty if you use minBedrooms/maxBedrooms."),
-          queryParam("minBedrooms", { type: "integer", minimum: 0 }, "Minimum bedrooms (inclusive). Leave `bedrooms` empty when using this."),
-          queryParam("maxBedrooms", { type: "integer", minimum: 0 }, "Maximum bedrooms (inclusive). Leave `bedrooms` empty when using this."),
+          queryParam(
+            "bedrooms",
+            { type: "integer", minimum: 0 },
+            "Exact number of bedrooms. Leave empty if you use minBedrooms/maxBedrooms.",
+          ),
+          queryParam(
+            "minBedrooms",
+            { type: "integer", minimum: 0 },
+            "Minimum bedrooms (inclusive). Leave `bedrooms` empty when using this.",
+          ),
+          queryParam(
+            "maxBedrooms",
+            { type: "integer", minimum: 0 },
+            "Maximum bedrooms (inclusive). Leave `bedrooms` empty when using this.",
+          ),
           queryParam("lat", { type: "number", minimum: -90, maximum: 90 }, "Latitude of the search point.", 6.4281),
           queryParam("lng", { type: "number", minimum: -180, maximum: 180 }, "Longitude of the search point.", 3.4219),
           queryParam(
@@ -260,7 +272,16 @@ export const openApiSpec = {
           },
         },
       },
+      Health: {
+        type: "object",
+        properties: {
+          status: { type: "string", enum: ["ok", "unavailable"] },
+          database: { type: "string", enum: ["up", "down"] },
+        },
+      },
       Error: {
+        description:
+          "Every error has this shape. Responses also carry an `X-Request-Id` header; quote it when reporting a problem.",
         type: "object",
         properties: {
           error: {
@@ -268,7 +289,16 @@ export const openApiSpec = {
             properties: {
               code: {
                 type: "string",
-                enum: ["VALIDATION_ERROR", "INVALID_JSON", "NOT_FOUND", "PAYLOAD_TOO_LARGE", "INTERNAL_ERROR"],
+                enum: [
+                  "VALIDATION_ERROR",
+                  "INVALID_JSON",
+                  "CONSTRAINT_VIOLATION",
+                  "NOT_FOUND",
+                  "PAYLOAD_TOO_LARGE",
+                  "UNSUPPORTED_MEDIA_TYPE",
+                  "INTERNAL_ERROR",
+                  "SERVICE_UNAVAILABLE",
+                ],
               },
               message: { type: "string" },
               details: {

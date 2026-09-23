@@ -39,30 +39,39 @@ cp .env.example .env         # optional: these values are also the built-in defa
 docker compose up -d db      # PostGIS on localhost:5434 (it also creates the listings_test DB)
 npm run migrate
 npm run seed                 # optional demo data
-npm run dev                  # http://localhost:3000, reloads on file changes
+npm run dev                  # http://localhost:3000, reloads on file changes, pretty-printed logs
 
 npm test                     # unit + integration (integration uses the listings_test DB)
-npm run test:unit            # validation tests only, no database needed
+npm run test:unit            # validation and HTTP-layer tests, no database needed
+npm run lint                 # ESLint with type-aware rules
+npm run format:check         # Prettier (npm run format to fix)
 ```
+
+| Env var        | Default                                                | Purpose                                        |
+| -------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| `PORT`         | `3000`                                                 | HTTP port                                      |
+| `DATABASE_URL` | `postgres://listings:listings@localhost:5434/listings` | Postgres connection                            |
+| `LOG_LEVEL`    | `info`                                                 | pino log level (`silent` in tests)             |
+| `CORS_ORIGIN`  | `*`                                                    | `*` or a comma-separated allow-list of origins |
 
 ---
 
 ## API
 
-All responses are JSON. Successful responses wrap the payload in `data`. List responses also include `pagination`.
+All responses are JSON. Successful responses wrap the payload in `data`. List responses also include `pagination`. Every response carries an `X-Request-Id` header (an incoming one is reused), which also appears in the logs.
 
-| Method   | Path               | Description                               | Success |
-| -------- | ------------------ | ----------------------------------------- | ------- |
-| `GET`    | `/docs`            | Swagger UI (`/` redirects here)           | 200     |
-| `GET`    | `/openapi.json`    | OpenAPI 3 spec                            | 200     |
-| `GET`    | `/health`          | Liveness check, including the DB          | 200     |
-| `POST`   | `/listings`        | Create a listing                          | 201 + `Location` header |
-| `GET`    | `/listings`        | List all listings (paginated, newest first) | 200   |
-| `GET`    | `/listings/search` | Filter and geo search (see below)         | 200     |
-| `GET`    | `/listings/:id`    | Get one listing                           | 200     |
-| `PUT`    | `/listings/:id`    | Replace a listing (every field required)  | 200     |
-| `PATCH`  | `/listings/:id`    | Partially update a listing                | 200     |
-| `DELETE` | `/listings/:id`    | Delete a listing                          | 204     |
+| Method   | Path               | Description                                 | Success                 |
+| -------- | ------------------ | ------------------------------------------- | ----------------------- |
+| `GET`    | `/docs`            | Swagger UI (`/` redirects here)             | 200                     |
+| `GET`    | `/openapi.json`    | OpenAPI 3 spec                              | 200                     |
+| `GET`    | `/health`          | Health check, including a DB ping           | 200 (503 if DB is down) |
+| `POST`   | `/listings`        | Create a listing                            | 201 + `Location` header |
+| `GET`    | `/listings`        | List all listings (paginated, newest first) | 200                     |
+| `GET`    | `/listings/search` | Filter and geo search (see below)           | 200                     |
+| `GET`    | `/listings/:id`    | Get one listing                             | 200                     |
+| `PUT`    | `/listings/:id`    | Replace a listing (every field required)    | 200                     |
+| `PATCH`  | `/listings/:id`    | Partially update a listing                  | 200                     |
+| `DELETE` | `/listings/:id`    | Delete a listing                            | 204                     |
 
 ### Listing body
 
@@ -77,14 +86,14 @@ All responses are JSON. Successful responses wrap the payload in `data`. List re
 }
 ```
 
-| Field      | Rules |
-| ---------- | ----- |
-| `title`    | string, 3–200 chars (whitespace is trimmed) |
+| Field      | Rules                                        |
+| ---------- | -------------------------------------------- |
+| `title`    | string, 3–200 chars (whitespace is trimmed)  |
 | `price`    | number ≥ 0, at most 2 decimal places (Naira) |
-| `type`     | `rent` \| `sale` \| `shortlet` |
-| `bedrooms` | integer 0–50 (0 = studio) |
-| `location` | `{ lat: -90..90, lng: -180..180 }` |
-| `agentId`  | UUID (see note below) |
+| `type`     | `rent` \| `sale` \| `shortlet`               |
+| `bedrooms` | integer 0–50 (0 = studio)                    |
+| `location` | `{ lat: -90..90, lng: -180..180 }`           |
+| `agentId`  | UUID (see note below)                        |
 
 Unknown fields are rejected. Responses also include `id`, `createdAt` and `updatedAt`.
 
@@ -97,15 +106,15 @@ Unknown fields are rejected. Responses also include `id`, `createdAt` and `updat
 
 All parameters are optional and can be combined (they are ANDed together).
 
-| Param                        | Example            | Notes |
-| ---------------------------- | ------------------ | ----- |
-| `type`                       | `rent` or `rent,shortlet` | one or more types |
-| `minPrice`, `maxPrice`       | `1000000`          | inclusive; `minPrice ≤ maxPrice` |
-| `bedrooms`                   | `3`                | exact match |
-| `minBedrooms`, `maxBedrooms` | `2`                | inclusive range (can't be combined with `bedrooms`) |
-| `lat`, `lng`, `radiusKm`     | `6.43`, `3.42`, `10` | all three together; radius in (0, 500] km |
-| `agentId`                    | UUID               | listings for one agent |
-| `page`, `limit`              | `1`, `20`          | `limit` ≤ 100 |
+| Param                        | Example                   | Notes                                               |
+| ---------------------------- | ------------------------- | --------------------------------------------------- |
+| `type`                       | `rent` or `rent,shortlet` | one or more types                                   |
+| `minPrice`, `maxPrice`       | `1000000`                 | inclusive; `minPrice ≤ maxPrice`                    |
+| `bedrooms`                   | `3`                       | exact match                                         |
+| `minBedrooms`, `maxBedrooms` | `2`                       | inclusive range (can't be combined with `bedrooms`) |
+| `lat`, `lng`, `radiusKm`     | `6.43`, `3.42`, `10`      | all three together; radius in (0, 500] km           |
+| `agentId`                    | UUID                      | listings for one agent                              |
+| `page`, `limit`              | `1`, `20`                 | `limit` ≤ 100                                       |
 
 > **Bedroom filters:** use **either** `bedrooms` (exact match) **or** `minBedrooms`/`maxBedrooms` (a range), not both. Sending both returns `400 VALIDATION_ERROR` ("Use either bedrooms or minBedrooms/maxBedrooms, not both"). A mix like `bedrooms=3&minBedrooms=4` can never match, so the API reports the conflict instead of quietly returning an empty list. In Swagger, clear the bedroom fields you don't need before clicking **Execute**.
 >
@@ -160,13 +169,16 @@ Every error uses the same shape:
 }
 ```
 
-| Status | `code` | When |
-| ------ | ------ | ---- |
-| 400 | `VALIDATION_ERROR` | invalid body, query or id (not a UUID), unknown fields or params |
-| 400 | `INVALID_JSON` | body is not valid JSON |
-| 404 | `NOT_FOUND` | listing or route doesn't exist |
-| 413 | `PAYLOAD_TOO_LARGE` | body larger than 100 KB |
-| 500 | `INTERNAL_ERROR` | unexpected error (details are logged, not returned) |
+| Status | `code`                   | When                                                                                      |
+| ------ | ------------------------ | ----------------------------------------------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`       | invalid body, query or id (not a UUID), unknown fields or params                          |
+| 400    | `INVALID_JSON`           | body is not valid JSON                                                                    |
+| 400    | `CONSTRAINT_VIOLATION`   | a value passed validation but broke a DB constraint (e.g. price too large for the column) |
+| 404    | `NOT_FOUND`              | listing or route doesn't exist                                                            |
+| 413    | `PAYLOAD_TOO_LARGE`      | body larger than 100 KB                                                                   |
+| 415    | `UNSUPPORTED_MEDIA_TYPE` | body sent without `Content-Type: application/json`                                        |
+| 500    | `INTERNAL_ERROR`         | unexpected error (details are logged, not returned)                                       |
+| 503    | `SERVICE_UNAVAILABLE`    | database unreachable; safe to retry                                                       |
 
 ---
 
@@ -177,7 +189,8 @@ src/
   app.ts                 Express app factory (takes a DB pool, which makes it easy to test)
   server.ts              Entry point: HTTP server + graceful shutdown
   config.ts              Environment config
-  errors.ts, middleware.ts   HttpError types, 404 handler, central error handler
+  logger.ts              pino logger
+  errors.ts, middleware.ts   HttpError types, JSON-only guard, 404 handler, central error handler
   docs/openapi.ts        OpenAPI 3 spec served by Swagger UI at /docs
   db/
     pool.ts              pg Pool (NUMERIC columns parsed as numbers)
@@ -189,7 +202,7 @@ src/
     routes.ts            HTTP handlers
 migrations/              Plain .sql migrations
 tests/
-  unit/                  Validation rules (no DB)
+  unit/                  Validation rules and HTTP behaviour: 415/413/500/503, CORS, request ids (no DB)
   integration/           Full HTTP → Postgres tests with Supertest
 ```
 
@@ -205,7 +218,11 @@ tests/
 - **`agentId` is a UUID without a foreign key**, because the task has no agents resource. In production it would reference an `agents` table.
 - **Real integration tests**, not mocks. They run against a separate `listings_test` database, so they check the real PostGIS behaviour (distances, index-backed filters, ordering). Each test starts from a truncated table.
 - **Hand-written OpenAPI spec + Swagger UI.** Generators that build a spec from Zod handle the query-string coercion poorly, so I wrote the spec by hand for clearer docs. A test sends a request to every documented operation and fails if one isn't actually routed, which stops the spec drifting from the code.
-- **Docker-first**: a multi-stage image that runs as a non-root user, migrations on boot guarded by an advisory lock, a DB healthcheck, graceful shutdown on SIGTERM, and a GitHub Actions CI workflow (typecheck, build, test against a PostGIS service).
+- **Survives database outages.** The connection pool has an `error` listener, so a dropped idle connection (DB restart, failover) is logged and replaced instead of crashing the process. Requests made while the DB is unreachable fail fast (5 s connect timeout, 10 s statement timeout) with `503 SERVICE_UNAVAILABLE`, and `/health` returns 503 so a load balancer or Docker can route around the instance. When the DB comes back, the API recovers without a restart.
+- **Structured logging with request IDs** (pino). Each request is logged as one JSON line with method, path, status and duration; 4xx logs at `warn`, 5xx at `error` with the stack. The request id is returned in `X-Request-Id`, so a client report can be matched to the log line. Auth and cookie headers are redacted.
+- **CORS enabled** for the web and mobile frontends, configurable with `CORS_ORIGIN`. `Location` and `X-Request-Id` are exposed to browser clients.
+- **Engineering habits**: ESLint with type-aware rules (catches things like un-awaited promises), Prettier, and a GitHub Actions workflow that runs lint → format check → typecheck → build → tests against a PostGIS service on every push.
+- **Docker-first**: a multi-stage image that runs as a non-root user, migrations on boot guarded by an advisory lock, healthchecks on both containers, `restart: unless-stopped`, and graceful shutdown on SIGTERM.
 
 ## What I'd improve with more time
 
@@ -216,5 +233,5 @@ tests/
 - **Richer data model**: `agents` table with an FK, description, images (object storage + CDN), address/city/state fields, listing status (draft/active/let/sold), soft deletes and an audit trail.
 - **Money handling**: store prices as integer kobo plus a currency code, and show rent periods (per year, month or night).
 - **Contract tests against the OpenAPI spec**: validate every response against its documented schema, or generate the spec from a single source of truth.
-- **Observability**: structured logging (pino) with request IDs, Prometheus metrics, tracing, and a readiness probe separate from the liveness probe.
+- **Observability**: Prometheus metrics (latency and error rate per route), OpenTelemetry tracing, and separate liveness and readiness probes.
 - **A proper migration tool** (e.g. node-pg-migrate) with down migrations, and more tests: repository-level tests, load tests for search, and contract tests.
