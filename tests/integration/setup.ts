@@ -14,6 +14,7 @@ export async function setupTestApp(): Promise<{ app: ReturnType<typeof createApp
     throw new Error(
       `Cannot reach the test database at ${TEST_DATABASE_URL}. ` +
         `Start it with \`docker compose up -d db\` (or set TEST_DATABASE_URL). Cause: ${(err as Error).message}`,
+      { cause: err },
     );
   }
   await runMigrations(pool);

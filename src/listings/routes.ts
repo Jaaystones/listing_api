@@ -46,13 +46,14 @@ export function listingsRouter(repo: ListingRepository): Router {
   });
 
   // PUT replaces the whole resource; PATCH updates only the supplied fields.
-  const update = (schema: typeof createListingSchema | typeof updateListingSchema) => async (req: Request, res: Response) => {
-    const id = getId(req);
-    const input = schema.parse(req.body ?? {});
-    const listing = await repo.update(id, input);
-    if (!listing) throw notFound();
-    res.json({ data: listing });
-  };
+  const update =
+    (schema: typeof createListingSchema | typeof updateListingSchema) => async (req: Request, res: Response) => {
+      const id = getId(req);
+      const input = schema.parse(req.body ?? {});
+      const listing = await repo.update(id, input);
+      if (!listing) throw notFound();
+      res.json({ data: listing });
+    };
   router.put("/:id", update(createListingSchema));
   router.patch("/:id", update(updateListingSchema));
 

@@ -56,7 +56,13 @@ export const searchQuerySchema = z
     // Accepts `type=rent` or `type=rent,shortlet` (or repeated `type=` params).
     type: z
       .preprocess(
-        (v) => (typeof v === "string" ? v.split(",").map((s) => s.trim()).filter(Boolean) : v),
+        (v) =>
+          typeof v === "string"
+            ? v
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+            : v,
         z.array(listingType).min(1),
       )
       .optional(),
@@ -76,10 +82,18 @@ export const searchQuerySchema = z
       ctx.addIssue({ code: "custom", path: ["minPrice"], message: "minPrice cannot be greater than maxPrice" });
     }
     if (q.minBedrooms !== undefined && q.maxBedrooms !== undefined && q.minBedrooms > q.maxBedrooms) {
-      ctx.addIssue({ code: "custom", path: ["minBedrooms"], message: "minBedrooms cannot be greater than maxBedrooms" });
+      ctx.addIssue({
+        code: "custom",
+        path: ["minBedrooms"],
+        message: "minBedrooms cannot be greater than maxBedrooms",
+      });
     }
     if (q.bedrooms !== undefined && (q.minBedrooms !== undefined || q.maxBedrooms !== undefined)) {
-      ctx.addIssue({ code: "custom", path: ["bedrooms"], message: "Use either bedrooms or minBedrooms/maxBedrooms, not both" });
+      ctx.addIssue({
+        code: "custom",
+        path: ["bedrooms"],
+        message: "Use either bedrooms or minBedrooms/maxBedrooms, not both",
+      });
     }
     const geo = [q.lat, q.lng, q.radiusKm].filter((v) => v !== undefined).length;
     if (geo !== 0 && geo !== 3) {
