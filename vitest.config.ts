@@ -3,6 +3,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
+    env: { LOG_LEVEL: "silent" },
     include: ["tests/**/*.test.ts"],
     // Integration test files share one database, so run files sequentially.
     fileParallelism: false,
